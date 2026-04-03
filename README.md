@@ -2,6 +2,16 @@
 
 A Model Context Protocol (MCP) server and REST API wrapper for accessing the GovInfo API. This tool provides easy access to government documents, bills, regulations, and related information through both MCP protocol and HTTP REST endpoints.
 
+The government api is located here https://api.govinfo.gov/docs/
+
+This is not the govenments mcp they have their own here 
+https://github.com/usgpo/api/blob/main/docs/mcp.md
+
+I wanted one that exposes all of the apis endpoints for deep research.
+
+I highly sugegst understanding the data structures before making promts. The mcp handels the api limits for you but it should be as targeted as posable. 
+
+
 ## Features
 
 - 🔍 **Advanced Search**: Search government documents with filtering, sorting, and pagination
