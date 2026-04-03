@@ -9,7 +9,7 @@ https://github.com/usgpo/api/blob/main/docs/mcp.md
 
 I wanted one that exposes all of the apis endpoints for deep research.
 
-I highly sugegst understanding the data structures before making promts. The mcp handels the api limits for you but it should be as targeted as possible. 
+I highly suggest understanding the data structures before making promts. The mcp handels the api limits for you but it should be as targeted as possible. 
 
 
 ## Features
