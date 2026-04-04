@@ -3,7 +3,7 @@
 FastAPI REST wrapper for GovInfo MCP tools
 Run this separately to expose HTTP endpoints on port 8090
 """
-from fastapi import FastAPI, Body, Path, Query
+from fastapi import FastAPI, Body, Path, Query, logger
 from fastapi.responses import JSONResponse
 from datetime import datetime
 import json
@@ -29,6 +29,8 @@ published_end = gove_api_mcp.published_end
 related = gove_api_mcp.related
 related_collection = gove_api_mcp.related_collection
 package_granulates_summary = gove_api_mcp.package_granulates_summary
+search_related = gove_api_mcp.search_related
+get_recently_published = gove_api_mcp.get_recently_published
 
 app = FastAPI(title="GovInfo REST API", version="1.0")
 
@@ -52,7 +54,7 @@ class MockContext:
     async def set_state(self, key, value):
         self.state[key] = value
 
-@app.get("/")
+@app.get("/",tags=["Root"], summary="API Root", description="Returns API status and available endpoints")
 async def root():
     """API root - returns status and endpoints"""
     return {
@@ -70,11 +72,13 @@ async def root():
             "published": "GET /published/<YYYY-MM-DD>?collection=<str>&pageSize=<int>&offsetMark=<str>",
             "published_range": "GET /published/<YYYY-MM-DD>/<YYYY-MM-DD>?collection=<str>&pageSize=<int>&offsetMark=<str>",
             "related": "GET /related/<access_id>",
-            "related_collection": "GET /related/<access_id>/<collection_id>"
+            "related_collection": "GET /related/<access_id>/<collection_id>",
+            "search_related": "POST /search_related with JSON body: {\"search_query\":\"term\", \"committees\":[\"list\"]}",
+            "get_recently_published": "POST /get_recently_published with JSON body: {\"start_date\":\"YYYY-MM-DD\", \"committees\":[\"list\"]}"
         }
     }
 
-@app.post("/search")
+@app.post("/search", tags=["Search"], summary="Search for documents", description="Performs a search for documents based on the provided query and optional filters.")
 async def search_endpoint(
     query: str = Body(...), 
     pageSize: int = Body(10), 
@@ -105,7 +109,7 @@ async def search_endpoint(
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
-@app.post("/search_synthesis", summary="Synthesize search results for AI analysis", description="Performs a search and synthesizes the results into a concise summary with AI analysis. You can specify a search query and optionally filter by committees (collections). If no committees are provided, the system will attempt to auto-detect relevant collections based on the search query, all of the resources are downloaded and the content is returned.")
+@app.post("/search_synthesis",tags=["Search"], summary="Synthesize search results for AI analysis", description="Performs a search and synthesizes the results into a concise summary with AI analysis. You can specify a search query and optionally filter by committees (collections). If no committees are provided, the system will attempt to auto-detect relevant collections based on the search query, all of the resources are downloaded and the content is returned.")
 async def search_synthesis_endpoint(
     search_query: str = Body(..., description="Search query for synthesis", examples=["immigration policy", "healthcare reform", "climate change"]), 
     committees: list = Body(None, description="List of collection codes", examples=[["BILLS", "FR"], ["CFR"], None])
@@ -133,7 +137,7 @@ async def search_synthesis_endpoint(
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
-@app.get("/collections",summary="Get all available collections", description="Returns a list of all collections available in the GovInfo system, including their IDs and descriptions.")
+@app.get("/collections",tags=["api"],summary="Get all available collections", description="Returns a list of all collections available in the GovInfo system, including their IDs and descriptions.")
 async def collections_endpoint():
     """Get all available collections"""
     try:
@@ -148,7 +152,7 @@ async def collections_endpoint():
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
-@app.get("/collections/{collection_id}/{last_modified}", summary="Get collections modified after a specific date", description="Returns collections modified after the specified date in YYYY-MM-DD format."    )
+@app.get("/collections/{collection_id}/{last_modified}", tags=["api"],summary="Get collections modified after a specific date", description="Returns collections modified after the specified date in YYYY-MM-DD format."    )
 async def collections_by_date_endpoint(collection_id: str = Path(description="Collection code"), last_modified: str = Path(description="Last modified date in YYYY-MM-DD format"), pageSize: int = Query(10, description="Number of results per page"), offsetMark: str = Query('*', description="Offset marker for pagination"),
                                        congress: int = Query(-1, description="Congress number"), docClass: str = Query('', description="Document class"), billVersion: str = Query('', description="Bill version"),
                                        courtCode: str = Query('', description="Court code"), courtType: str = Query('', description="Court type"), state: str = Query('', description="State code"),
@@ -172,7 +176,7 @@ async def collections_by_date_endpoint(collection_id: str = Path(description="Co
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
-@app.get("/collections/{collection_id}/{start_date}/{end_date}", summary="Get collections modified within a date range", description="Returns collections modified within the specified date range in YYYY-MM-DD format.")
+@app.get("/collections/{collection_id}/{start_date}/{end_date}", tags=["api"],summary="Get collections modified within a date range", description="Returns collections modified within the specified date range in YYYY-MM-DD format.")
 async def collections_by_range_endpoint(collection_id: str = Path(description="Collection code"), 
                                         start_date: str = Path(description="Start date in YYYY-MM-DD format"), 
                                         end_date: str = Path(description="End date in YYYY-MM-DD format"), 
@@ -207,7 +211,7 @@ async def collections_by_range_endpoint(collection_id: str = Path(description="C
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
-@app.get("/package/{package_id}/summary" , summary="Get package summary", description="Returns a summary of the specified package, including metadata and key information.")
+@app.get("/package/{package_id}/summary" , tags=["api"],summary="Get package summary", description="Returns a summary of the specified package, including metadata and key information.")
 async def package_summary_endpoint(package_id: str = Path(description="Package ID")):
     """Get package summary"""
     try:
@@ -222,7 +226,7 @@ async def package_summary_endpoint(package_id: str = Path(description="Package I
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
-@app.get("/package/{package_id}/granules", summary="Get package granules", description="Returns the granules for the specified package.")
+@app.get("/package/{package_id}/granules", tags=["api"],summary="Get package granules", description="Returns the granules for the specified package.")
 async def package_granules_endpoint(package_id: str = Path(description="Package ID"), 
                                     pageSize: int = Query(10, description="Number of results per page"), 
                                     offsetMark: str = Query('*', description="Offset marker for pagination")):
@@ -239,7 +243,7 @@ async def package_granules_endpoint(package_id: str = Path(description="Package 
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
     
-@app.get("/package/{package_id}/granules/{granules_id}/summary", summary="Get granules summary", description="Returns the summary for the specified granules within a package.")
+@app.get("/package/{package_id}/granules/{granules_id}/summary", tags=["api"],summary="Get granules summary", description="Returns the summary for the specified granules within a package.")
 async def package_granules_summary_endpoint(package_id: str = Path(description="Package ID"), 
                                             granules_id: str = Path(description="Granules ID"), 
                                             pageSize: int = Query(10, description="Number of results per page")):
@@ -256,7 +260,7 @@ async def package_granules_summary_endpoint(package_id: str = Path(description="
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
-@app.get("/published/{start_date}" , summary="Get published packages from a specific date", description="Returns packages published from the specified start date in YYYY-MM-DD format.")
+@app.get("/published/{start_date}" ,tags=["api"], summary="Get published packages from a specific date", description="Returns packages published from the specified start date in YYYY-MM-DD format.")
 async def published_endpoint(start_date: str = Path(description="Start date in YYYY-MM-DD format"), 
                              collection: str = Query(description="Collection code"), 
                              pageSize: int = Query(10, description="Number of results per page"), 
@@ -277,7 +281,7 @@ async def published_endpoint(start_date: str = Path(description="Start date in Y
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
-@app.get("/published/{start_date}/{end_date}" , summary="Get published packages within a date range", description="Returns packages published within the specified date range in YYYY-MM-DD format.")
+@app.get("/published/{start_date}/{end_date}" ,tags=["api"], summary="Get published packages within a date range", description="Returns packages published within the specified date range in YYYY-MM-DD format.")
 async def published_range_endpoint(start_date: str = Path(description="Start date in YYYY-MM-DD format"), 
                                    end_date: str = Path(description="End date in YYYY-MM-DD format"), 
                                    collection: str = Query(description="Collection code"), 
@@ -300,7 +304,7 @@ async def published_range_endpoint(start_date: str = Path(description="Start dat
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
-@app.get("/related/{access_id}" , summary="Get related documents for an access ID", description="Returns documents related to the specified access ID (packageId or granuleId).")
+@app.get("/related/{access_id}" , tags=["api"], summary="Get related documents for an access ID", description="Returns documents related to the specified access ID (packageId or granuleId).")
 async def related_endpoint(access_id: str = Path(description="The unique accessId (packageId or granuleId) for a given piece of GovInfo content")):
     """Get related documents for an access ID"""
     try:
@@ -315,7 +319,7 @@ async def related_endpoint(access_id: str = Path(description="The unique accessI
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
-@app.get("/related/{access_id}/{collection_id}" , summary="Get related documents within a collection", description="Returns documents related to the specified access ID within a specific collection.")
+@app.get("/related/{access_id}/{collection_id}" , tags=["api"], summary="Get related documents within a collection", description="Returns documents related to the specified access ID within a specific collection.")
 async def related_collection_endpoint(
     access_id: str = Path(description="The unique accessId (packageId or granuleId) for a given piece of GovInfo content"),
     collection_id: str = Path(description="The unique collection id for a given collection of GovInfo content")
@@ -330,6 +334,59 @@ async def related_collection_endpoint(
             return JSONResponse(status_code=500, content={"error": "Empty response from API"})
     except json.JSONDecodeError as e:
         return JSONResponse(status_code=500, content={"error": f"Invalid JSON response: {str(e)}"})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.post("/search_related", tags=["Search"],summary="Find related search results highlighting key committees and sponsors", description="Performs a search to find related documents with enhanced analysis of committees and sponsors. You can specify a search query and optionally filter by committees (collections). If no committees are provided, the system will auto-detect relevant collections based on the search query.")
+async def search_related_endpoint(
+    search_query: str = Body(..., description="Search query for finding related documents", examples=["immigration policy", "healthcare reform", "climate change"]), 
+    committees: list = Body(None, description="List of collection codes to filter by", examples=[["BILLS", "FR"], ["CFR"], None])
+):
+    """🔍 Find related search results highlighting key committees and sponsors
+    
+    Examples:
+    - Immigration search: search_query="immigration policy" + committees=["BILLS", "FR"]  
+    - Healthcare search: search_query="healthcare reform" + committees=["BILLS", "CREC"]
+    - Auto discovery: search_query="climate change" (committees auto-detected)
+    """
+    try:
+        ctx = MockContext()
+        
+        if not search_query:
+            return JSONResponse(status_code=400, content={"error": "search_query parameter is required"})
+        
+        result = await search_related(search_query, ctx, committees)
+        if result:
+            return JSONResponse(content={"related_results": result})
+        else:
+            return JSONResponse(status_code=500, content={"error": "Empty response from search_related"})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.post("/get_recently_published", tags=["Search"],summary="Get recently published documents from a specific date", description="Returns recently published documents from the specified start date. You can optionally filter by specific committees (collections). The start_date should be in YYYY-MM-DD format.")
+async def get_recently_published_endpoint(
+    start_date: str = Body(..., description="Start date for recently published documents in YYYY-MM-DD format", examples=["2024-01-01", "2024-03-15"]), 
+    committees: str = Body(None, description="List of collection codes to filter by", examples=["BILLS", "FR", "CFR", None])
+):
+    """📅 Get recently published documents from a specific date
+    
+    Examples:
+    - Recent bills: start_date="2024-01-01" + committees=["BILLS"]
+    - All recent docs: start_date="2024-03-15" + committees=None  
+    - Federal Register: start_date="2024-02-01" + committees=["FR"]
+    """
+    try:
+        ctx = MockContext()
+        
+        if not start_date:
+            return JSONResponse(status_code=400, content={"error": "start_date parameter is required"})
+        
+        logger.logger.info(f"Received request for recently published documents from {start_date} with committees: {committees}")
+        result = await get_recently_published(start_date, ctx, committees)
+        if result:
+            return JSONResponse(content={"recently_published": result})
+        else:
+            return JSONResponse(status_code=500, content={"error": "Empty response from get_recently_published"})
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 

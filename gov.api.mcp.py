@@ -193,8 +193,138 @@ async def handel_api_limits(ctx: Context) -> bool:
         
     except Exception as e:
         logger.error(f"Error in handel_api_limits: {str(e)}", exc_info=True)
-        return False
-    
+        return False 
+
+async def get_downlaod(url:str) -> str:
+    """Helper function to get text content from download link"""
+    try:
+        html_text = requests.get(url+f'?api_key={API_KEY}').text
+        # Strip HTML tags and decode HTML entities
+        clean_text = re.sub(r'<[^>]+>', '', html_text)
+        clean_text = html.unescape(clean_text)
+        # Remove extra whitespace and normalize line breaks
+        clean_text = re.sub(r'\s+', ' ', clean_text).strip()
+        return clean_text
+    except Exception as e:
+        logger.error(f"Error in get_downlaod: {str(e)}", exc_info=True)
+        return ""
+
+@mcp.tool(name="search_related", description="Find related search results highlighting key committees and sponsors.")
+async def search_related(search_query:str, ctx: Context, committees:list = None) -> str:
+    """Find related search results highlighting key committees and sponsors."""
+    try:
+        logger.debug(f"Fuzzy match ratio for search query with tool calls '{search_query}' ")
+        await ctx.info(f"Fuzzy match ratio for search query with tool calls '{search_query}'")
+        collection_codes = []
+        if not committees:
+
+            # Get all collections and find matches using fuzzy matching
+            list_of_collections = await collections(ctx) 
+            collections_data = json.loads(list_of_collections)
+            logger.debug(f"going through  '{json.dumps(collection_codes) if collection_codes else '[]'}'")
+            await ctx.info(f"going through  '{json.dumps(collection_codes) if collection_codes else '[]'}'")
+
+            #remove stop words from search query for better matching
+            get_stop_words_list = get_stop_words('en')
+            words = re.findall(r'\b\w+\b', search_query.lower())
+            filtered_words = [w for w in words.split(' ') if w not in get_stop_words_list]
+            
+            # Extract collection codes that match search query terms
+            for collection in collections_data.get('collections', []):
+                collection_name = collection.get('collectionName', '')
+                collection_code = collection.get('collectionCode', '')
+                
+                # Check first 7 words for matches
+                for query_word in filtered_words.split(' ')[:7]:  
+                    ratio = fuzz.ratio(collection_name.lower(), query_word.lower())
+                    if ratio > 40:
+                        collection_codes.append(collection_code)
+                        break
+
+            # Remove duplicates
+            collection_codes = list(set(collection_codes))  
+        else:
+            collection_codes = committees
+            logger.debug(f"Using provided committees: {json.dumps(collection_codes)}")
+            await ctx.info(f"Using provided committees: {json.dumps(collection_codes)}")
+        logger.debug(f"Final committees list: {json.dumps(collection_codes)}")
+        await ctx.info(f"Final committees list: {json.dumps(collection_codes)}")
+        # Perform search with identified collection codes
+        search_results = await search(search_query, ctx, collection=collection_codes)
+        search_results_json = json.loads(search_results)
+
+        results_list=[]
+        
+        for result in search_results_json.get('results', []):
+            item = {}
+            if 'download' in result:
+                if('txtLink' in result['download']):
+                    clean_text = await get_downlaod(result['download']['txtLink'])
+                    item['text'] = clean_text[:500]   
+                   
+            if 'packageId' in result.get('resultPackage', {}):
+                item['package_id'] = result['packageId']
+            if 'granuleId' in result:
+                item['granule_id'] = result['granuleId']
+            if 'collectionCode' in result:
+                item['collection_code'] = result['collectionCode']
+            if 'title' in result:
+                item['title'] = result['title']
+            if 'collectionCode' in result:
+                item['collection_code'] = result['collectionCode']
+            if 'governmentAuthor' in result:
+                item['government_author'] = result['governmentAuthor']
+            if 'relatedLink' in result:
+                item['related'] = await get_downlaod(result['relatedLink'])
+            results_list.append(item)
+        #await ctx.set_state("search_results", results_list)
+        await ctx.info("Search related results generated successfully")
+        return results_list
+    except Exception as e:
+        logger.error(f"Error in search_related: {str(e)}", exc_info=True)
+        return f"Error generating search related results: {str(e)}"
+
+@mcp.tool(name="get_recently_published", description="Find related search results highlighting key committees and sponsors.")
+async def get_recently_published(start_date: str, ctx: Context, committees:str = None) -> str:
+    """Find recently published results."""
+    try:
+       
+        collection_codes = ''
+        if committees:
+            collection_codes = committees
+            logger.debug(f"Using provided committees: {json.dumps(collection_codes)}")
+            await ctx.info(f"Using provided committees: {json.dumps(collection_codes)}")
+        date_obj = None
+        try:
+            date_obj = datetime.strptime(start_date, "%Y-%m-%d")
+        except ValueError:
+            return "error Date format must be YYYY-MM-DD";
+        # Perform search with identified collection codes
+        search_results = await published(date_obj,collection=collection_codes, ctx=ctx)
+        search_results_json = json.loads(search_results)
+
+        results_list=[]
+        
+        for result in search_results_json.get('packages', []):
+            item = {}
+            if 'packageLink' in result:
+                clean_text = await get_downlaod(result['packageLink'])
+                item['text'] = clean_text[:500]   
+            if 'packageId' in result.get('resultPackage', {}):
+                item['package_id'] = result['packageId']
+            if 'lastModified' in result:
+                item['lastModified'] = result['lastModified']
+            if 'title' in result:
+                item['title'] = result['title']
+           
+            results_list.append(item)
+        #await ctx.set_state("search_results", results_list)
+        await ctx.info("Search recently_published generated successfully")
+        return results_list
+    except Exception as e:
+        logger.error(f"Error in get_recently_published: {str(e)}", exc_info=True)
+        return f"Error generating get_recently_published results: {str(e)}"
+
 @mcp.tool(name="search_synthesis", description="Synthesize search results into a concise summary highlighting key committees and sponsors.")
 async def search_synthesis(search_query:str, ctx: Context, committees:list = None) -> str:
     """Synthesize search results into a concise summary highlighting key committees and sponsors."""
@@ -251,7 +381,7 @@ async def search_synthesis(search_query:str, ctx: Context, committees:list = Non
                     clean_text = html.unescape(clean_text)
                     # Remove extra whitespace and normalize line breaks
                     clean_text = re.sub(r'\s+', ' ', clean_text).strip()
-                    item['text'] = clean_text
+                    item['text'] = clean_text[:500]
             if 'packageId' in result.get('resultPackage', {}):
                 item['package_id'] = result['packageId']
             if 'granuleId' in result:
@@ -266,12 +396,11 @@ async def search_synthesis(search_query:str, ctx: Context, committees:list = Non
                 item['government_author'] = result['governmentAuthor']
             results_list.append(item)
         #await ctx.set_state("search_results", results_list)
-        await ctx.info("Search synthesis generated successfully")
+        await ctx.info("Search synthesis results generated successfully")
         return results_list
     except Exception as e:
         logger.error(f"Error in search_synthesis: {str(e)}", exc_info=True)
-        return f"Error generating search synthesis: {str(e)}"
-
+        return f"Error generating search_synthesis results: {str(e)}"
 
 @mcp.tool(name="search", 
           description="🔍 POWERFUL FULL-TEXT SEARCH across 7.7+ million government documents. Search congressional bills, federal regulations, court opinions, presidential documents, and more. Returns document metadata with direct links to HTML, PDF, XML, and ZIP formats. Tested: 643,573 results for 'congressional bills', 9,299 for 'border security'. Use 'collection' parameter to filter (BILLS, CFR, FR, USCOURTS, etc.), 'historical=false' for current documents only, 'sort' by lastModified/publishDate/title, and 'page_size' up to 100.")
@@ -667,7 +796,7 @@ async def published(start_date: datetime,collection:str, ctx: Context, page_size
             logger.info(f"Published packages retrieved from: {formatted_date}")
             #base api url with encoded date in the path
             url = f"{BASE_URL}/published/{encoded_date}"
-
+            logger.info(f"Published packages collections: {collection}")
             # Build parameters dictionary - requests will handle URL encoding automatically
             params = {
                 'offsetMark': offsetMark,
